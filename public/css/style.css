@@ -10,6 +10,12 @@ canvas { display: block; image-rendering: pixelated; }
 .block-navigation select:focus-visible{outline:2px solid #96d7a9;outline-offset:3px}
 @media(max-width:640px){.block-navigation{top:66px;left:16px;gap:6px}.block-navigation select{max-width:170px}.block-navigation label{display:none}.room-label{display:none}}
 [hidden]{display:none!important}
+.checkin-qr{position:fixed;right:40px;bottom:145px;z-index:4;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px;background:#142b35f2;border:1px solid #3e6069;border-radius:8px;box-shadow:0 8px 28px #07151a55;color:#eaf1ed;text-decoration:none;text-align:center}
+.checkin-qr img{display:block;width:205px;height:205px;background:#fff;image-rendering:pixelated;border-radius:4px}
+.checkin-qr strong{font-size:16px}.checkin-qr span{font-size:11px;color:#b9c9cd}
+.checkin-qr:focus-visible{outline:2px solid #96d7a9;outline-offset:4px}
+@media(min-width:1600px){.checkin-qr img{width:246px;height:246px}}
+@media(max-width:640px),(max-height:600px){.checkin-qr{right:16px;padding:10px;gap:6px}.checkin-qr img{width:123px;height:123px}.checkin-qr strong{font-size:13px}.checkin-qr span{max-width:145px;font-size:10px}}
 .admin-tools{position:fixed;top:82px;right:40px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;z-index:2;max-width:280px}
 .admin-tools button{background:#20343c;color:#efb4b0;border:1px solid #6d5054;border-radius:4px;padding:8px 12px;cursor:pointer;font:12px 'Segoe UI',Arial,sans-serif}
 .admin-tools button:disabled{opacity:.6;cursor:wait}.admin-tools button:focus-visible{outline:2px solid #efb4b0;outline-offset:3px}

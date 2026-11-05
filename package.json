@@ -1,0 +1,38 @@
+{
+  "name": "mundo-senai-virtual",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Protótipo isométrico do Mundo // Digital — Fase 1",
+  "scripts": {
+    "start": "node --use-system-ca server.js",
+    "test": "node --test --test-concurrency=2 tests/production-readiness.test.js tests/auth.test.js tests/admin-operations.test.js tests/world.test.js tests/checkin.test.js tests/selfie-privacy.test.js tests/persistence.test.js tests/lpc.test.js tests/avatar-pipeline.test.js tests/openrouter-avatar-analyzer.test.js tests/participant-reset.test.js tests/avatar-experience.test.js tests/portrait-pass.test.js tests/credential-flow.test.js tests/macro-world.test.js tests/poi-visits.test.js tests/visit-visual-behavior.test.js tests/social-behavior.test.js tests/operator.test.js",
+    "test:browser": "playwright test",
+    "test:load": "node scripts/load-test.js",
+    "inspect:participants": "node scripts/inspect-participants.js",
+    "avatar:build": "node scripts/build-lpc-avatar.js",
+    "avatar:analyze": "node scripts/analyze-participant.js",
+    "avatar:test:ollama": "node scripts/test-ollama-avatar.js",
+    "demo:world": "node scripts/demo-world.js",
+    "admin:create": "node --use-system-ca scripts/create-admin.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@google/genai": "^2.29.0",
+    "argon2": "^0.45.2",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.3",
+    "express-session": "^1.19.0",
+    "helmet": "^8.3.0",
+    "multer": "^2.5.0",
+    "phaser": "3.90.0",
+    "playwright": "^1.64.0",
+    "sharp": "^0.35.5",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "socket.io-client": "^4.8.4"
+  }
+}

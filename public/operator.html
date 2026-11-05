@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101f29">
+  <title>Controle do operador · Mundo // Digital</title>
+  <link rel="stylesheet" href="/css/operator.css">
+  <link rel="stylesheet" href="/css/account.css">
+</head>
+<body>
+  <main class="operator-shell">
+    <header class="operator-header">
+      <a class="brand" href="/tela" target="_blank" rel="noopener noreferrer">Mundo <strong>// Digital</strong></a>
+      <span class="eyebrow">CONTROLE DO OPERADOR</span>
+      <p id="connection-status" role="status">Conectando ao controle…</p>
+    </header>
+    <div id="operator-controls" hidden>
+      <section class="panel search-panel" aria-labelledby="search-title">
+        <span class="eyebrow">LOCALIZAR NO MUNDO</span>
+        <h1 id="search-title">Encontrar participante</h1>
+        <label for="participant-search">Nome ou parte do nome</label>
+        <input id="participant-search" type="search" placeholder="Ex.: Lucas, Maria, João" maxlength="80" autocomplete="off" aria-describedby="search-status" aria-controls="search-results">
+        <p id="search-status" role="status">Digite pelo menos 2 caracteres.</p>
+        <ul id="search-results" aria-label="Participantes encontrados"></ul>
+      </section>
+      <section class="panel camera-panel" aria-labelledby="camera-title">
+        <span class="eyebrow">TV · CÂMERA ATUAL</span>
+        <h2 id="camera-title">Sala de Acesso</h2>
+        <p id="camera-location">Bloco B · Superior · Sala de Acesso</p>
+        <p id="camera-status" role="status">Visão de entrada do Mundo // Digital.</p>
+        <button id="camera-home" class="home-button" type="button" disabled>IR PARA SALA DE ACESSO</button>
+      </section>
+    </div>
+    <p id="operator-error" role="alert"></p>
+    <footer>Desenvolvido por <a href="https://www.linkedin.com/in/lucas-garofolo-94b8bb6a" target="_blank" rel="noopener noreferrer">Lucas Garofolo</a></footer>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/js/operator.js"></script>
+  <script type="module" src="/js/account.js"></script>
+</body>
+</html>

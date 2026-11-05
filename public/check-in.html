@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101f29"><title>Entre no Mundo // Digital</title>
+  <link rel="stylesheet" href="/css/check-in.css">
+</head>
+<body>
+  <main class="checkin">
+    <header><span class="brand">Mundo <strong>//</strong></span><span class="edition">Digital</span></header>
+    <div class="eyebrow"><span></span> SALA 5 · SUA EXPERIÊNCIA COMEÇA AQUI</div>
+    <h1>Você também faz<br>parte deste mundo.</h1>
+    <p class="intro">Crie seu avatar e veja ele entrar na sala de acesso no telão.</p>
+    <p id="provider-note" class="notice" role="status">Conectando ao mundo…</p>
+    <form id="checkin-form">
+      <label for="name">Seu nome</label><input id="name" name="name" autocomplete="name" minlength="2" maxlength="60" required placeholder="Como podemos chamar você?">
+      <label for="email">Seu e-mail</label><input id="email" name="email" type="email" autocomplete="email" maxlength="254" required placeholder="voce@exemplo.com">
+      <section class="selfie-notice" aria-labelledby="selfie-notice-title">
+        <h2 id="selfie-notice-title">Sobre sua selfie 📸</h2>
+        <p>Sua foto será utilizada somente para criar sua identidade visual no Mundo // Digital.</p>
+        <p>Ela será enviada aos serviços de inteligência artificial utilizados pela experiência para criar seu avatar digital e gerar o retrato pixel art do seu crachá.</p>
+        <p>Após o processamento ser concluído, a selfie será apagada do servidor do Mundo // Digital. O sistema manterá apenas os elementos gerados, como seu avatar e portrait.</p>
+        <p>Os serviços externos de IA realizam o processamento conforme suas próprias políticas de privacidade e tratamento de dados.</p>
+        <a id="selfie-privacy-policy" hidden target="_blank" rel="noopener noreferrer">Saiba como sua imagem é utilizada</a>
+        <label class="selfie-ack" for="selfie-ai-acknowledged"><input id="selfie-ai-acknowledged" name="selfieAiAcknowledged" type="checkbox" required>
+          <span>Estou ciente de que minha selfie será processada por serviços de inteligência artificial para gerar minha experiência no Mundo // Digital.</span></label>
+      </section>
+      <span class="field-label">Uma selfie para seu avatar</span>
+      <div class="photo-zone"><video id="camera-preview" aria-label="Câmera para selfie" autoplay muted playsinline hidden></video><img id="preview" alt="Prévia da sua selfie" hidden><div id="photo-placeholder"><span class="pixel-face">◉</span><span>Escolha uma foto com o rosto visível</span></div></div>
+      <div id="camera-controls" class="photo-actions" hidden><button id="take-photo" type="button" class="photo-button" disabled>Fotografar</button><button id="cancel-camera" type="button" class="photo-button">Cancelar</button></div>
+      <div class="photo-actions"><button id="camera" type="button" class="photo-button">Tirar selfie</button><label class="photo-button" for="photo">Escolher foto</label></div>
+      <input class="file-input" id="photo" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Escolher selfie">
+      <small>JPEG, PNG ou WebP · até 5 MB</small>
+      <p class="privacy">Somente seu nome e avatar aparecerão no telão. O e-mail evita cadastros duplicados; sua titularidade não é verificada nesta etapa.</p>
+      <button id="submit" type="submit" disabled>PREPARAR MEU CRACHÁ <span aria-hidden="true">↗</span></button>
+    </form>
+    <section id="result" aria-live="polite" hidden>
+      <div id="processing-mark" aria-hidden="true"></div>
+      <h2 id="result-title">Preparando seu crachá do Mundo // Digital…</h2><p id="result-text">Seu passe para uma nova experiência está a caminho.</p>
+    </section>
+    <p id="status" role="status" aria-live="polite"></p><p id="error" role="alert"></p>
+    <footer><span>UM MUNDO DE POSSIBILIDADES</span><span class="developer-credit">Desenvolvido por <a href="https://www.linkedin.com/in/lucas-garofolo-94b8bb6a" target="_blank" rel="noopener noreferrer">Lucas Garofolo</a></span></footer>
+  </main>
+  <script type="module" src="/js/check-in.js"></script>
+</body>
+</html>

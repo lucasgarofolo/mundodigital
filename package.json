@@ -5,7 +5,7 @@
   "description": "Protótipo isométrico do Mundo // Digital — Fase 1",
   "scripts": {
     "start": "node --use-system-ca server.js",
-    "test": "node --test --test-concurrency=2 tests/production-readiness.test.js tests/auth.test.js tests/admin-operations.test.js tests/world.test.js tests/checkin.test.js tests/selfie-privacy.test.js tests/persistence.test.js tests/lpc.test.js tests/avatar-pipeline.test.js tests/openrouter-avatar-analyzer.test.js tests/participant-reset.test.js tests/avatar-experience.test.js tests/portrait-pass.test.js tests/credential-flow.test.js tests/macro-world.test.js tests/poi-visits.test.js tests/visit-visual-behavior.test.js tests/social-behavior.test.js tests/operator.test.js",
+    "test": "node --test --test-concurrency=2 tests/production-readiness.test.js tests/auth.test.js tests/admin-operations.test.js tests/world.test.js tests/checkin.test.js tests/selfie-privacy.test.js tests/persistence.test.js tests/lpc.test.js tests/avatar-pipeline.test.js tests/openrouter-avatar-analyzer.test.js tests/participant-reset.test.js tests/avatar-experience.test.js tests/portrait-pass.test.js tests/portrait-providers.test.js tests/credential-flow.test.js tests/macro-world.test.js tests/poi-visits.test.js tests/visit-visual-behavior.test.js tests/social-behavior.test.js tests/operator.test.js",
     "test:browser": "playwright test",
     "test:load": "node scripts/load-test.js",
     "inspect:participants": "node scripts/inspect-participants.js",

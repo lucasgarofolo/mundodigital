@@ -34,6 +34,8 @@ O segundo comando instala binário e bibliotecas do sistema; pode precisar de pr
 
 O suporte a `channel: 'chromium'`, instalação das bibliotecas e localização dos binários constam na [documentação oficial do Playwright](https://playwright.dev/docs/browsers). Não foi criado Dockerfile. Localmente pode continuar usando `STORY_BROWSER_CHANNEL=chrome` com o Chrome já instalado.
 
+No Railway com Railpack, a integração oficial pode ser habilitada com `RAILPACK_NODE_PLAYWRIGHT_INSTALL=1`, instalando navegadores e pacotes de runtime. Usar o canal `chromium` e cache coerente no build/runtime; sem override, o código agora escolhe `chromium` por padrão em production e `chrome` localmente. Não presumir que o pacote npm sozinho instala o navegador. Falhas de exportação agora têm [códigos seguros e diagnóstico por etapa](portrait-pass.md#diagnóstico-local-de-download-óculos-e-demora). [Referência do Railpack](https://railpack.com/languages/node/#playwright).
+
 Comando de execução:
 
 ```sh
@@ -62,6 +64,11 @@ CLOUDFLARE_ACCOUNT_ID=
 CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_PORTRAIT_MODEL=@cf/black-forest-labs/flux-2-klein-4b
 CLOUDFLARE_PORTRAIT_TIMEOUT_MS=120000
+PORTRAIT_PROVIDER=cloudflare
+PORTRAIT_FALLBACK_ENABLED=false
+PORTRAIT_FALLBACK_PROVIDER=openrouter
+OPENROUTER_PORTRAIT_MODEL=black-forest-labs/flux-3-image-klein
+OPENROUTER_PORTRAIT_TIMEOUT_MS=120000
 STORY_BROWSER_CHANNEL=chromium
 PLAYWRIGHT_BROWSERS_PATH=0
 ```
@@ -87,7 +94,13 @@ Inventário completo, também documentado em `.env.example`:
 | OPENROUTER_AVATAR_TIMEOUT_MS | 30000; orçamento global existente, não um timeout novo por tentativa. |
 | CLOUDFLARE_ACCOUNT_ID | Identificador da conta autorizado para Workers AI. |
 | CLOUDFLARE_API_TOKEN | Token de backend com permissões existentes para o portrait. |
-| CLOUDFLARE_PORTRAIT_MODEL | `@cf/black-forest-labs/flux-2-klein-4b`. |
+| CLOUDFLARE_PORTRAIT_MODEL | Default `@cf/black-forest-labs/flux-2-klein-4b`; também aceita `@cf/black-forest-labs/flux-2-klein-9b`. |
+| PORTRAIT_PROVIDER | `cloudflare` (default) ou `openrouter`, exclusivamente para portraits. |
+| PORTRAIT_FALLBACK_ENABLED | `false` (default) ou `true`. |
+| PORTRAIT_FALLBACK_PROVIDER | `openrouter` (default) ou `cloudflare`; deve diferir do principal quando habilitado, ignorado quando desabilitado. |
+| OPENROUTER_PORTRAIT_API_KEY | Chave separada para portraits. Ausente: usa OPENROUTER_API_KEY por compatibilidade. Definida vazia: bloqueia geração até preencher. |
+| OPENROUTER_PORTRAIT_MODEL | `black-forest-labs/flux-3-image-klein`. |
+| OPENROUTER_PORTRAIT_TIMEOUT_MS | 120000 ms; inteiro entre 1 e 600000. |
 | CLOUDFLARE_PORTRAIT_TIMEOUT_MS | 120000. |
 | STORY_BROWSER_CHANNEL | `chromium` no host com binário instalado; `chrome` local. |
 | PLAYWRIGHT_BROWSERS_PATH | `0` no build e runtime para manter binário no mesmo artefato; variável do Playwright. |

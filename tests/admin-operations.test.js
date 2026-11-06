@@ -22,7 +22,7 @@ async function seed(r,name,options={}){const {createWalker}=await import('../pub
 const summary=async r=>(await(await fetch(r.base+'/api/admin/operations')).json());
 const detail=async(r,id)=>(await(await fetch(`${r.base}/api/admin/participants/${id}`)).json()).participant;
 const action=(r,id,name,body={})=>fetch(`${r.base}/api/admin/participants/${id}/actions/${name}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:randomUUID(),...body})});
-async function checkin(r){const form=new FormData();form.set('name','Visitante Operação');form.set('email',randomUUID()+'@example.test');form.set('selfieAiAcknowledged','true');form.set('selfie',new Blob([await image()],{type:'image/png'}),'synthetic.png');const response=await fetch(r.base+'/api/check-in',{method:'POST',body:form});assert.equal(response.status,201);return (await response.json()).participant;}
+async function checkin(r,email=randomUUID()+'@example.test'){const form=new FormData();form.set('name','Visitante Operação');form.set('email',email);form.set('selfieAiAcknowledged','true');form.set('selfie',new Blob([await image()],{type:'image/png'}),'synthetic.png');const response=await fetch(r.base+'/api/check-in',{method:'POST',body:form});assert.equal(response.status,201);return (await response.json()).participant;}
 
 test('backend aggregates actual states, paginates/filter/searches by accent-insensitive name or UUID, and never projects private image/session fields',async()=>{
  const r=await start({analyzeSelfie:async()=>DEFAULT_AVATAR});try{
@@ -166,5 +166,104 @@ test('available selfie portrait recovery reuses the existing queue/budget while 
  try{const p=await checkin(r);await r.passService.idle();const d=await detail(r,p.uuid);assert.equal(d.actions.retryPortrait.allowed,true);assert.equal(d.actions.retryLpc.allowed,false);
   const requestId=randomUUID(),responses=await Promise.all([action(r,p.uuid,'retry-portrait',{requestId}),action(r,p.uuid,'retry-portrait',{requestId})]);assert.ok(responses.every(response=>response.status===200));await r.passService.idle();assert.equal(calls,2);assert.equal(r.store.findByUuid(p.uuid).portraitStatus,'READY');assert.ok(r.store.findByUuid(p.uuid).photoPath);
   release();await r.avatarPipeline.idle();await r.selfieLifecycle.idle();assert.equal(r.store.findByUuid(p.uuid).selfieStatus,'DELETED');
+ }finally{release();await r.close();}
+});
+
+test('PASS_READY waits for approval; confirmed admin deletion removes only this registration/assets and frees its email',async()=>{
+ const r=await start();try{
+  const p=await seed(r,'Cadastro abandonado',{experienceStatus:'AVATAR_REVIEW',assets:true}),other=await seed(r,'Preservado',{assets:true});
+  const d=await detail(r,p.uuid);assert.equal(d.status,'PASS_READY');assert.equal(d.actions.forceEntry.allowed,true);
+  assert.equal(d.actions.remove.allowed,false);assert.equal(d.actions.deleteRegistration.allowed,true);assert.equal(r.entryScheduler.size,0);
+  const files=r.passService.paths(p.uuid),variant=path.join(r.dataDir,'avatars',p.uuid+'-0123456789abcdef.png');
+  await fs.writeFile(variant,await image());await fs.writeFile(files.story,await image());await fs.writeFile(files.story+'.tmp','temporary');
+  const route=`${r.base}/api/admin/participants/${p.uuid}/actions/delete-registration`,payload={requestId:randomUUID(),confirm:true};
+  assert.equal((await r.publicFetch(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})).status,401);
+  const session=await sessionFor(r.base);assert.equal((await r.publicFetch(route,{method:'POST',headers:{Cookie:session.cookie,'Content-Type':'application/json'},body:JSON.stringify(payload)})).status,403);
+  assert.equal((await action(r,p.uuid,'delete-registration')).status,400);assert.ok(r.store.findByUuid(p.uuid));
+  const responses=await Promise.all([action(r,p.uuid,'delete-registration',payload),action(r,p.uuid,'delete-registration',payload)]);
+  assert.ok(responses.every(response=>response.status===200));assert.equal(r.store.findByUuid(p.uuid),null);assert.equal(r.store.findByEmail(p.email),null);
+  for(const filename of [path.join(r.dataDir,'avatars',p.uuid+'.png'),variant,files.directory])await assert.rejects(fs.access(filename),{code:'ENOENT'});
+  assert.ok(r.store.findByUuid(other.uuid));await fs.access(path.join(r.dataDir,'avatars',other.uuid+'.png'));await fs.access(r.passService.paths(other.uuid).portrait);
+  assert.equal((await fetch(r.base+'/pass/'+p.uuid)).status,404);assert.equal((await fetch(r.base+p.avatar)).status,404);assert.equal((await summary(r)).counters.total,1);
+  const audit=(await summary(r)).activity.filter(e=>e.action==='DELETE_PARTICIPANT');assert.equal(audit.length,1);assert.equal(audit[0].uuid,p.uuid);assert.equal(audit[0].name,null);
+  const replacement=await checkin(r,p.email);assert.notEqual(replacement.uuid,p.uuid);assert.equal(r.store.findByEmail(p.email).uuid,replacement.uuid);
+ }finally{await r.close();}
+});
+
+test('entry already begun/finished cannot be permanently deleted; a scheduled entry is cancelled before deletion',async()=>{
+ const r=await start({entryDelayMs:400});try{
+  for(const experienceStatus of ['ENTERING','ACTIVE']){const p=await seed(r,experienceStatus,{experienceStatus});
+   assert.equal((await detail(r,p.uuid)).actions.deleteRegistration.allowed,false);assert.equal((await action(r,p.uuid,'delete-registration',{confirm:true})).status,409);assert.ok(r.store.findByUuid(p.uuid));}
+  const p=await seed(r,'Agendado descartado',{experienceStatus:'AVATAR_REVIEW',assets:true});
+  assert.equal((await action(r,p.uuid,'force-entry')).status,200);assert.equal(r.entryScheduler.size,1);
+  assert.equal((await action(r,p.uuid,'delete-registration',{confirm:true})).status,200);assert.equal(r.entryScheduler.size,0);
+  await tick(500);assert.equal(r.store.findByUuid(p.uuid),null);assert.equal(r.walkers.has(p.uuid),false);
+ }finally{await r.close();}
+});
+
+test('deletion aborts LPC but retains the selfie until an underlying analyzer that ignores abort really settles',async()=>{
+ let release,signal,builds=0,settled=false;const gate=new Promise(resolve=>{release=resolve;});
+ const r=await start({analyzeSelfie:async(_path,options)=>{signal=options.signal;await gate;return DEFAULT_AVATAR;},buildLpcAvatar:async()=>{builds++;throw Error('Must not build a deleted avatar');}});
+ try{const p=await checkin(r);await until(()=>signal);await r.passService.idle();
+  const deletion=action(r,p.uuid,'delete-registration',{confirm:true}).then(result=>{settled=true;return result;});
+  await until(()=>r.store.findByUuid(p.uuid)?.status==='INACTIVE');assert.equal(signal.aborted,true);await tick(100);
+  await fs.access(path.join(r.dataDir,'photos',p.uuid+'.png'));assert.ok(r.selfieLifecycle.activeLeases>0);assert.equal(settled,false);
+  release();assert.equal((await deletion).status,200);assert.equal(builds,0);assert.equal(r.store.findByUuid(p.uuid),null);
+  await assert.rejects(fs.access(path.join(r.dataDir,'photos',p.uuid+'.png')),{code:'ENOENT'});assert.equal(r.selfieLifecycle.activeLeases,0);
+ }finally{release();await r.close();}
+});
+
+test('queued portrait is removed without IA; running portrait receives abort and cannot recreate deleted assets',async()=>{
+ let release,signal,calls=0;const gate=new Promise(resolve=>{release=resolve;});
+ const r=await start({generatePortrait:async(_path,options)=>{calls++;signal=options.signal;await gate;return image();}});
+ try{const first=await checkin(r);await until(()=>signal);const queued=await checkin(r);
+  assert.equal(r.passService.stats.portrait.queued,1);assert.equal((await action(r,queued.uuid,'delete-registration',{confirm:true})).status,200);
+  assert.equal(calls,1);assert.equal(r.passService.stats.portrait.queued,0);assert.equal(r.store.findByUuid(queued.uuid),null);
+  const deletion=action(r,first.uuid,'delete-registration',{confirm:true});await until(()=>signal.aborted);
+  await fs.access(path.join(r.dataDir,'photos',first.uuid+'.png'));release();assert.equal((await deletion).status,200);
+  await r.passService.idle();assert.equal(calls,1);await assert.rejects(fs.access(r.passService.paths(first.uuid).directory),{code:'ENOENT'});
+ }finally{release();await r.close();}
+});
+
+test('an in-flight LPC build finishes before file deletion, without reviving the participant or leaving generated sprites',async()=>{
+ let release,building=false;const gate=new Promise(resolve=>{release=resolve;});
+ const r=await start({analyzeSelfie:async()=>DEFAULT_AVATAR,buildLpcAvatar:async({participantUuid,avatarDir})=>{
+  building=true;await gate;const filename=participantUuid+'-fedcba9876543210.png';await fs.writeFile(path.join(avatarDir,filename),await image());
+  return {avatarUrl:'/avatars/'+filename,avatarKind:'lpc',avatarType:'lpc'};
+ }});
+ try{const p=await checkin(r);await until(()=>building);const deletion=action(r,p.uuid,'delete-registration',{confirm:true});
+  await until(()=>r.store.findByUuid(p.uuid)?.status==='INACTIVE');assert.ok(r.avatarPipeline.has(p.uuid));release();assert.equal((await deletion).status,200);
+  assert.ok(!(await fs.readdir(path.join(r.dataDir,'avatars'))).some(name=>name.startsWith(p.uuid)));assert.equal(r.store.findByUuid(p.uuid),null);
+ }finally{release();await r.close();}
+});
+
+test('filesystem failure preserves a retryable registration and returns no private path; retry completes deletion',async t=>{
+ const r=await start();try{const p=await seed(r,'Falha ao excluir',{experienceStatus:'AVATAR_REVIEW',assets:true}),remove=fs.rm;let fail=true;
+  t.mock.method(fs,'rm',async(target,options)=>{if(fail&&target===r.passService.paths(p.uuid).directory)throw Object.assign(Error('PRIVATE_DISK_PATH'),{code:'EACCES'});return remove(target,options);});
+  const response=await action(r,p.uuid,'delete-registration',{confirm:true});assert.equal(response.status,500);assert.ok(!JSON.stringify(await response.json()).includes('PRIVATE'));
+  assert.ok(r.store.findByUuid(p.uuid));assert.equal((await detail(r,p.uuid)).actions.deleteRegistration.allowed,true);fail=false;
+  assert.equal((await action(r,p.uuid,'delete-registration',{confirm:true})).status,200);assert.equal(r.store.findByUuid(p.uuid),null);
+ }finally{await r.close();}
+});
+
+test('a stuck consumer times out deletion safely, retains its image, and allows a later retry',async()=>{
+ const {createParticipantDeletion}=require('../lib/participantDeletion');let release,signal;const gate=new Promise(resolve=>{release=resolve;});
+ const r=await start({analyzeSelfie:async(_path,options)=>{signal=options.signal;await gate;return DEFAULT_AVATAR;}});
+ try{const p=await checkin(r);await until(()=>signal);await r.passService.idle();const deletion=createParticipantDeletion({...r,dataDir:r.dataDir,waitMs:20});
+  await assert.rejects(deletion.delete(p.uuid),error=>error.status===409);await fs.access(path.join(r.dataDir,'photos',p.uuid+'.png'));assert.ok(r.store.findByUuid(p.uuid));
+  release();await until(()=>r.selfieLifecycle.activeLeases===0);assert.equal((await action(r,p.uuid,'delete-registration',{confirm:true})).status,200);
+ }finally{release();await r.close();}
+});
+
+test('scheduled deletion cancels an active Story renderer and waits for its temporary file before cleaning the directory',async()=>{
+ let release,signal,renders=0;const gate=new Promise(resolve=>{release=resolve;});
+ const r=await start({entryDelayMs:5000,storyRenderer:{render:async(_snapshot,options)=>{
+  signal=options.signal;renders++;await gate;await fs.writeFile(options.outputPath,await image());
+ },close:async()=>{}}});
+ try{const p=await seed(r,'Story em andamento',{experienceStatus:'AVATAR_REVIEW',assets:true});
+  assert.equal((await action(r,p.uuid,'force-entry')).status,200);await until(()=>signal);
+  const deletion=action(r,p.uuid,'delete-registration',{confirm:true});await until(()=>signal.aborted);assert.equal(r.entryScheduler.size,0);
+  release();assert.equal((await deletion).status,200);await r.passService.idle();assert.equal(renders,1);
+  assert.equal(r.store.findByUuid(p.uuid),null);assert.equal(r.walkers.has(p.uuid),false);await assert.rejects(fs.access(r.passService.paths(p.uuid).directory),{code:'ENOENT'});
  }finally{release();await r.close();}
 });

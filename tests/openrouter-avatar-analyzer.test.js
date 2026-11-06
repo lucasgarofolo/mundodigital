@@ -27,6 +27,7 @@ test('OpenRouter config has an independent model and 30-second default; override
  for(const value of ['','-1','invalid','Infinity','2147483648'])assert.equal(openRouterConfig({OPENROUTER_AVATAR_TIMEOUT_MS:value}).timeoutMs,30000);
  for(const value of ['0','50','30000'])assert.equal(openRouterConfig({OPENROUTER_AVATAR_TIMEOUT_MS:value}).timeoutMs,Number(value));
  assert.match(avatarPrompt(),/Se facialHair = none, facialHairColor deve ser unknown\./);
+ assert.match(avatarPrompt(),/glasses deve ser none/);
 });
 
 test('OpenRouter sends only the shared prompt/schema and normalized private JPEG, returns appearance, and logs accounting safely',async()=>{
@@ -55,6 +56,7 @@ test('OpenRouter sends only the shared prompt/schema and normalized private JPEG
  const completed=JSON.parse(logs.find(l=>l.startsWith('[OpenRouter] completed ')).slice('[OpenRouter] completed '.length));
  assert.equal(completed.provider,'openrouter');assert.equal(completed.upstream_provider,'DeepInfra');assert.equal(completed.model,config.model);
  assert.equal(completed.http_status,200);assert.ok(completed.duration_ms>=0);
+ assert.ok(completed.preparation_ms>=0);assert.ok(completed.http_ms>=0);
  for(const [key,value] of Object.entries(usage))assert.equal(completed[key],value);
  for(const secret of [config.apiKey,'Authorization',uri,uri.split(',')[1],filename,'hairStyle','selfie'])assert.ok(!logs.join('\n').includes(secret));
  // The existing normalizer is unchanged even for the prompt's no-beard rule.

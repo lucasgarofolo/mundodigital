@@ -22,7 +22,9 @@ const {createSelfieLifecycle,SELFIE_NOTICE_VERSION}=require('./lib/selfieLifecyc
 const {createAuth}=require('./lib/auth');
 const {createOperationEvents}=require('./lib/operationEvents');
 const {attachAdminOperations}=require('./lib/adminOperations');
+const {createParticipantDeletion}=require('./lib/participantDeletion');
 const {portraitConfig}=require('./lib/cloudflarePortrait');
+const {createPortraitProvider}=require('./lib/portraitProvider');
 
 // A strict allowlist: private email, selfie and simulation internals never reach the display.
 function publicParticipant(w) {
@@ -42,6 +44,9 @@ function validateIdentity(body) {
 }
 
 async function createApplication(options={}) {
+  // Validate provider selection before creating databases, queues or timers.
+  let portraitLogger=()=>{};
+  const generatePortrait=options.generatePortrait||createPortraitProvider({logger:(...args)=>portraitLogger(...args)});
   const {createWalker:createBaseWalker,updateWalker}=await import('./public/js/movement.js');
   const {createVisitController}=await import('./public/js/macroNavigation.js');
   const visitController=createVisitController({socialConfig:options.socialConfig});
@@ -61,9 +66,9 @@ async function createApplication(options={}) {
   const provider=options.avatarProvider||process.env.AVATAR_PROVIDER||'local';
   if(!['local','gemini','ollama','openrouter'].includes(provider))throw new Error('Use AVATAR_PROVIDER=local, gemini, ollama ou openrouter.');
   const personalization=provider!=='local'||!!options.analyzeSelfie;
-  // Prepare the local LPC once. Emergency fallback is the approved Phase 4.0 sheet.
+  // The emergency sheet must match the neutral default, not the bespectacled demo avatar.
   const defaultSprite=options.generateAvatar?null:await composeAvatar(DEFAULT_AVATAR)
-    .catch(()=>fs.readFile(path.join(__dirname,'public/assets/avatars/lpc/test-avatar.png')));
+    .catch(()=>{console.warn('[LPC] Default composition unavailable; using neutral emergency sprite.');return fs.readFile(path.join(__dirname,'public/assets/avatars/lpc/default-avatar.png'));});
   const generate=options.generateAvatar||(()=>({buffer:defaultSprite,kind:'lpc'}));
   const now=options.now||Date.now;
   const experience={...experienceConfig(),...(options.entryDelayMs!==undefined?{entryDelayMs:options.entryDelayMs}:{}),
@@ -72,6 +77,7 @@ async function createApplication(options={}) {
   const operationEvents=createOperationEvents({now,resolve:ref=>store?.adminResolveRef(ref)||null});
   const writeLog=options.logger||((event,details={})=>console.log(`[Mundo // Digital] ${event}`,JSON.stringify(details)));
   const log=(event,details={})=>{writeLog(event,details);operationEvents.record(event,details);};
+  portraitLogger=log;
   const app=express();app.disable('x-powered-by');
   const server=http.createServer(app),io=new Server(server,{maxHttpBufferSize:10000});
   const auth=createAuth({app,io,dataDir,logger:log,config:options.authConfig});
@@ -99,7 +105,7 @@ async function createApplication(options={}) {
     timeoutMs:analysisTimeoutMs,onUpdated:payload=>{if(walkers.has(payload.uuid))io.to('live').emit('participant:avatar-updated',payload);}});
   const entryScheduler=createEntryScheduler({store,walkers,createWalker,now,spacingMs:experience.entrySpacingMs,logger:log,
     onEnter:walker=>io.to('live').emit('participant:enter',publicParticipant(walker))});
-  passService=createPassService({store,dataDir,logger:log,generatePortrait:options.generatePortrait,renderer:options.storyRenderer,selfieLifecycle,
+  passService=createPassService({store,dataDir,logger:log,generatePortrait,renderer:options.storyRenderer,selfieLifecycle,
     config:options.passConfig,retryDelayMs:options.portraitRetryDelayMs});
   // READY is never analyzed again. Only interrupted, persisted PENDING jobs resume.
   for(const participant of store.listRegistered())if(participant.avatarStatus==='PENDING'){
@@ -189,7 +195,8 @@ async function createApplication(options={}) {
     io.to('live').emit('participant:removed',{uuid,id:uuid});
     selfieLifecycle.request(uuid).catch(()=>{});operationEvents.changed(uuid);
   }
-  operations=attachAdminOperations({app,io,auth,store,walkers,avatarPipeline,passService,selfieLifecycle,entryScheduler,operatorControl,
+  const participantDeletion=createParticipantDeletion({store,dataDir,avatarPipeline,passService,selfieLifecycle,entryScheduler,walkers,now,logger:log,onChanged:uuid=>operationEvents.changed(uuid)});
+  operations=attachAdminOperations({app,io,auth,store,walkers,avatarPipeline,passService,selfieLifecycle,entryScheduler,operatorControl,participantDeletion,
     events:operationEvents,dataDir,now,personalization,approveEntry,removeParticipant,logger:log,isUnavailable:()=>closed||resettingParticipants,
     configuration:()=>{const cf=portraitConfig();return {provider,openrouter:!!openRouterConfig().apiKey,cloudflare:!!cf.token&&/^[a-f0-9]{32}$/i.test(cf.accountId)};}});
 
@@ -233,7 +240,7 @@ async function createApplication(options={}) {
     if(req.get('X-SENAI-ADMIN')!=='reset-participants'){res.status(403).json({error:'Solicitação de limpeza inválida.'});return;}
     const origin=req.get('Origin');
     if(origin){try{if(new URL(origin).host!==req.get('Host'))throw new Error();}catch{res.status(403).json({error:'Origem da solicitação inválida.'});return;}}
-    if(closed||resettingParticipants||processing||pending.size){res.status(409).json({error:'Aguarde o check-in ou a limpeza em andamento e tente novamente.'});return;}
+    if(closed||resettingParticipants||processing||pending.size||participantDeletion.size){res.status(409).json({error:'Aguarde o check-in ou a limpeza em andamento e tente novamente.'});return;}
     resettingParticipants=true;
     resetTask=(async()=>{
       entryScheduler.clear();
@@ -378,7 +385,7 @@ async function createApplication(options={}) {
   return {app,server,io,store,walkers,avatarPipeline,entryScheduler,passService,operatorControl,visitController,selfieLifecycle,auth,operations,
     async close(){
       if(closed)return;closed=true;operations.close();clearInterval(timer);entryScheduler.close();visitController.clear();
-      await Promise.allSettled([...pending.values(),...(resetTask?[resetTask]:[])]);await avatarPipeline.close();await passService.close();await selfieLifecycle.close();const saved=checkpoint();
+      await Promise.allSettled([...pending.values(),...(resetTask?[resetTask]:[]),participantDeletion.idle()]);await avatarPipeline.close();await passService.close();await selfieLifecycle.close();const saved=checkpoint();
       await new Promise(resolve=>io.close(resolve));
       if(server.listening) await new Promise(resolve=>server.close(resolve));
       auth.close();store.close();if(!saved)throw new Error('Falha ao salvar o último checkpoint; os cadastros anteriores permanecem no banco.');

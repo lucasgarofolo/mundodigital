@@ -26,3 +26,7 @@ blob-report/
 *.key
 *.p12
 *.pfx
+
+# Railway SSH keys stay on this computer only.
+/railway ssh
+/railway ssh.pub

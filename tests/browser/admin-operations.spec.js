@@ -51,3 +51,20 @@ test('force entry and cancellation use real states without duplicate timers or c
   await expect(page.locator('[data-action=force-entry]')).toBeEnabled();await page.locator('[data-action=force-entry]').click();await expect.poll(()=>r.walkers.has(p.id),{timeout:10000}).toBe(true);expect(r.walkers.size).toBe(1);await expect(page.locator('[data-action=force-entry]')).toBeDisabled();
  }finally{await page.close();await r.close();}
 });
+
+test('abandoned PASS_READY registration can be permanently deleted with confirmation; active participant remains protected',async({browser})=>{
+ const r=await start(),page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];page.on('pageerror',error=>errors.push(error.message));
+ try{const abandoned=await seed(r,'Cadastro abandonado'),active=await seed(r,'Visitante ativo','ACTIVE');
+  await page.goto(r.base+'/admin');await expect(page.locator('.metric[data-key=total] dd')).toHaveText('2');
+  const abandonedRow=page.locator(`#participant-table tr[data-uuid="${abandoned.id}"]`);await abandonedRow.getByRole('button',{name:'VER',exact:true}).click();
+  await expect(page.locator('[data-action=remove]')).toBeDisabled();await expect(page.locator('[data-action=force-entry]')).toBeEnabled();await expect(page.locator('[data-action=delete-registration]')).toBeEnabled();
+  await page.locator('[data-action=delete-registration]').click();await expect(page.locator('#confirm-action')).toContainText('não pode ser desfeita');
+  await page.locator('#confirm-action button[value=cancel]').click();expect(r.store.findByUuid(abandoned.id)).not.toBe(null);
+  await page.locator('[data-action=delete-registration]').click();await page.locator('#confirm-action button[value=confirm]').click();
+  await expect(page.locator('#participant-detail')).not.toBeVisible();await expect(page.locator('.metric[data-key=total] dd')).toHaveText('1');await expect(abandonedRow).toHaveCount(0);
+  expect(r.store.findByUuid(abandoned.id)).toBe(null);await expect.poll(async()=>(await fetch(r.base+'/pass/'+abandoned.id)).status).toBe(404);
+  await page.locator(`#participant-table tr[data-uuid="${active.id}"]`).getByRole('button',{name:'VER',exact:true}).click();
+  await expect(page.locator('[data-action=delete-registration]')).toBeDisabled();await expect(page.locator('[data-action=remove]')).toBeEnabled();
+  await page.locator('#close-detail').click();await page.reload();await expect(page.locator('.metric[data-key=total] dd')).toHaveText('1');expect(r.walkers.has(active.id)).toBe(true);expect(errors).toEqual([]);
+ }finally{await page.close();await r.close();}
+});

@@ -7,6 +7,14 @@ const sharp = require('sharp');
 const { createAvatar } = require('../scripts/build-lpc-avatar');
 const config = import(pathToFileURL(path.resolve('public/js/avatar/lpcConfig.js')).href);
 
+test('emergency LPC is exactly the neutral default without glasses; demo sheet remains separate',async()=>{
+  const {DEFAULT_AVATAR}=require('../lib/avatarCatalog'),{composeAvatar}=require('../lib/lpcAvatarBuilder'),{mapAppearance}=require('../lib/avatarLpcMapper');
+  const neutral=await composeAvatar(DEFAULT_AVATAR),fallback=await fs.readFile('public/assets/avatars/lpc/default-avatar.png');
+  assert.equal(DEFAULT_AVATAR.glasses,'none');assert.deepEqual(fallback,neutral);
+  assert.ok(!mapAppearance(DEFAULT_AVATAR).layers.some(l=>['glasses','round','thin'].includes(l.id)));
+  assert.ok(!fallback.equals(await fs.readFile('public/assets/avatars/lpc/test-avatar.png')));
+});
+
 test('LPC composition is reproducible, transparent and contains all 36 intact frames', async () => {
   const { LPC_APPEARANCE } = await config;
   const generated = await createAvatar(LPC_APPEARANCE);

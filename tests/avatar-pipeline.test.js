@@ -52,6 +52,9 @@ test('OpenRouter server selects its real factory/config, retains DI and concurre
   assert.deepEqual(configured,{provider:'openrouter',model:'qwen/qwen3-vl-30b-a3b-instruct',keyConfigured:true,timeoutMs:30000});
   assert.equal(r.avatarPipeline.stats.concurrency,2);
   const session=await checkin(r,710);await settled(r);let p=r.store.findByUuid(session.uuid);
+  assert.ok(logs.find(l=>l.event==='avatar:analysis-started').details.queue_wait_ms>=0);
+  assert.ok(logs.find(l=>l.event==='avatar:analysis-completed').details.duration_ms>=0);
+  assert.ok(logs.find(l=>l.event==='avatar:generation-completed').details.build_ms>=0);
   assert.equal(calls,1);assert.equal(p.avatarStatus,'READY');assert.equal(p.appearance.hairStyle,'long');assert.equal(p.appearance.glasses,'thin');
   assert.equal(p.avatarKind,'lpc');assert.equal(p.experienceStatus,'AVATAR_REVIEW');assert.equal(r.walkers.size,0);
   const meta=await sharp(Buffer.from(await (await fetch(r.base+p.avatar)).arrayBuffer())).metadata();

@@ -4,7 +4,8 @@ const {Readable}=require('node:stream');
 const sharp=require('sharp');
 const {createApplication,nativeFetch}=require('./helpers/authenticatedApplication');
 const {createCloudflarePortrait,PORTRAIT_PROMPT,MODEL}=require('../lib/cloudflarePortrait');
-const {createStoryRenderer}=require('../lib/storyRenderer');
+const {createPortraitProvider}=require('../lib/portraitProvider');
+const {createStoryRenderer,storyBrowserChannel,storyFailure}=require('../lib/storyRenderer');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function fixture(){return sharp(Buffer.from('<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg"><path fill="#D9D9D9" d="M0 0h512v512H0z"/><path fill="#20323c" d="M168 80h176v48H168zM136 128h240v176H136zM104 368h304v144H104z"/><path fill="#ddb594" d="M168 144h176v176H168zM200 320h112v64H200z"/><path fill="#183038" d="M192 208h32v32h-32zM288 208h32v32h-32z"/><path fill="#487ca1" d="M136 384h240v128H136z"/></svg>')).png().toBuffer();}
 async function runtime(options={}){
@@ -21,7 +22,25 @@ const approve=(r,s)=>fetch(`${r.base}/api/participants/${s.participant.uuid}/app
 async function active(r,uuid){for(let i=0;i<70&&r.store.findByUuid(uuid)?.experienceStatus!=='ACTIVE';i++)await pause(50);assert.equal(r.store.findByUuid(uuid).experienceStatus,'ACTIVE');}
 const fakeRenderer={render:async(_data,{outputPath})=>fs.writeFile(outputPath,await sharp({create:{width:1080,height:1920,channels:3,background:'#12343a'}}).png().toBuffer()),close:async()=>{}};
 
+test('provider sequence is not retried by queue and READY portrait survives provider switch without API calls',async()=>{
+ const pixels=await fixture(),calls=[];
+ const env={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'test',OPENROUTER_API_KEY:'test',PORTRAIT_FALLBACK_ENABLED:'true'};
+ let fail=true;
+ const generatePortrait=createPortraitProvider({env,fetchImpl:async url=>{calls.push(url);return fail?Response.json({}, {status:503}):Response.json({success:true,result:{image:pixels.toString('base64')}});}});
+ let r=await runtime({generatePortrait,storyRenderer:fakeRenderer});const directory=r.dataDir;
+ try{
+  const abandoned=await register(r,901);await r.passService.idle();assert.equal(calls.length,2);
+  assert.equal(r.store.findByUuid(abandoned.participant.uuid).portraitStatus,'FAILED');assert.equal(r.store.findByUuid(abandoned.participant.uuid).portraitAttempts,1);
+  fail=false;const ready=await register(r,902);await r.passService.idle();assert.equal(calls.length,3);assert.equal(r.store.findByUuid(ready.participant.uuid).portraitStatus,'READY');
+  await r.close();
+  const alternate=createPortraitProvider({env:{...env,PORTRAIT_PROVIDER:'openrouter',PORTRAIT_FALLBACK_ENABLED:'false'},fetchImpl:async()=>{calls.push('unexpected');throw Error('must use cache');}});
+  r=await runtime({dataDir:directory,generatePortrait:alternate,storyRenderer:fakeRenderer});await r.passService.idle();
+  r.passService.request(ready.participant.uuid);await r.passService.idle();assert.equal(calls.length,3);assert.equal(r.store.findByUuid(ready.participant.uuid).portraitStatus,'READY');
+ }finally{await r.close();}
+});
+
 test('Cloudflare sends the exact prompt and binary multipart with automatic boundary, validates and normalizes result',async()=>{
+ assert.match(PORTRAIT_PROMPT,/Preserve eyeglasses only when clearly worn/);assert.match(PORTRAIT_PROMPT,/WITHOUT glasses/);
  const output=await fixture(),directory=await fs.mkdtemp(path.resolve('.test-data/cloudflare-')),photo=path.join(directory,'private.png');await fs.writeFile(photo,output);
  let received;
  const server=http.createServer(async(req,res)=>{
@@ -42,6 +61,36 @@ test('Cloudflare sends the exact prompt and binary multipart with automatic boun
    await assert.rejects(bad(photo),error=>!error.message.includes('private-test-token'));
   }
  }finally{await new Promise(resolve=>server.close(resolve));}
+});
+
+test('Story diagnostics distinguish browser/assets/storage failures without exposing raw Playwright data',()=>{
+ assert.equal(storyBrowserChannel({NODE_ENV:'production'}),'chromium');assert.equal(storyBrowserChannel({}),'chrome');
+ assert.equal(storyBrowserChannel({NODE_ENV:'production',STORY_BROWSER_CHANNEL:'chrome'}),'chrome');
+ const cases=[
+  [Error("Executable doesn't exist at /PRIVATE/browser"),'browser_launch','STORY_BROWSER_MISSING'],
+  [Error('error while loading shared libraries: PRIVATE.so'),'browser_launch','STORY_BROWSER_DEPENDENCIES'],
+  [Error('Target page, context or browser has been closed PRIVATE'),'page_create','STORY_BROWSER_CLOSED'],
+  [Object.assign(Error('PRIVATE HTML data:image/png;base64,PRIVATE'),{name:'TimeoutError'}),'html_render','STORY_RENDER_TIMEOUT'],
+  [Object.assign(Error('/PRIVATE/avatar.png'),{code:'ENOENT'}),'asset_read','STORY_ASSET_MISSING'],
+  [Object.assign(Error('/PRIVATE/story.png'),{code:'ENOSPC'}),'asset_write','STORY_STORAGE_ERROR'],
+  [Error('PRIVATE authorization token'),'browser_launch','STORY_BROWSER_LAUNCH_FAILED'],
+  [Error('PRIVATE HTML image'),'image_decode','STORY_RENDER_FAILED']
+ ];
+ for(const [error,stage,code]of cases){const safe=storyFailure(error,stage);assert.equal(safe.code,code);assert.equal(safe.stage,stage);assert.equal(safe.message,code);assert.ok(!JSON.stringify(safe).includes('PRIVATE'));}
+});
+
+test('a missing Story browser produces a safe FAILED state; regeneration after recovery works without selfie or new IA',async()=>{
+ let fail=true,launches=0,portraitCalls=0,current;const pages=[];
+ const browserType={launch:async()=>{launches++;if(fail)throw Error("Executable doesn't exist at /PRIVATE/browser");
+  current={connected:true,isConnected(){return this.connected;},close:async()=>{current.connected=false;},newPage:async()=>{const page={closed:false,route:async()=>{},setContent:async()=>{},evaluate:async()=>{},screenshot:async({path:outputPath})=>fakeRenderer.render({}, {outputPath}),close:async()=>{page.closed=true;}};pages.push(page);return page;}};return current;}};
+ const renderer=createStoryRenderer({browserType}),logs=[];const r=await runtime({storyRenderer:renderer,logger:(event,details)=>logs.push({event,details}),generatePortrait:async()=>{portraitCalls++;return fixture();}});
+ try{const s=await register(r),uuid=s.participant.uuid;await approve(r,s);await r.passService.idle();await r.selfieLifecycle.idle();
+  assert.equal(r.store.findByUuid(uuid).storyStatus,'FAILED');assert.equal(r.store.findByUuid(uuid).selfieStatus,'DELETED');
+  const error=logs.find(l=>l.event==='story:generation-failed');assert.equal(error.details.code,'STORY_BROWSER_MISSING');assert.equal(error.details.stage,'browser_launch');assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
+  const failedLaunches=launches;fail=false;assert.equal(r.passService.regenerateStory(uuid),true);await r.passService.idle();assert.equal(r.store.findByUuid(uuid).storyStatus,'READY');assert.equal(portraitCalls,1);assert.equal(launches,failedLaunches+1);
+  const data=await(await fetch(r.base+'/api/pass/'+uuid)).json();assert.equal((await fetch(r.base+data.pass.storyUrl)).status,200);assert.ok(pages.every(p=>p.closed));
+  current.connected=false;assert.equal(r.passService.regenerateStory(uuid),true);await r.passService.idle();assert.equal(r.store.findByUuid(uuid).storyStatus,'READY');assert.equal(launches,failedLaunches+2);assert.equal(portraitCalls,1);
+ }finally{await r.close();}
 });
 
 test('approval is independent of portrait; real Story render, public privacy, restart cache and changed profile invalidation',async()=>{

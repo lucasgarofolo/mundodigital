@@ -30,3 +30,10 @@ blob-report/
 # Railway SSH keys stay on this computer only.
 /railway ssh
 /railway ssh.pub
+# SSH/private keys
+*.pem
+*.key
+id_rsa
+id_ed25519
+railway ssh
+railway ssh.pub
